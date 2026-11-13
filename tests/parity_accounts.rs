@@ -83,13 +83,11 @@ async fn pt_acc_001_usernames_are_validated_and_lower_cased() {
     // the Kelvin sign in the path folds to k as well
     pair.same_status(&Req::lookup("%E2%84%AAELVIN"), 200).await;
     pair.login("ALICE_01", PASSWORD).await;
-    assert_eq!(
-        pair.db_same("SELECT group_concat(username, '|') FROM accounts")
-            .await
-            .unwrap()
-            .starts_with("alice_01|"),
-        true
-    );
+    assert!(pair
+        .db_same("SELECT group_concat(username, '|') FROM accounts")
+        .await
+        .unwrap()
+        .starts_with("alice_01|"));
 }
 
 // ---- BR-002 ----

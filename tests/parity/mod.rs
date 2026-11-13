@@ -750,6 +750,10 @@ impl Pair {
         (py, rs)
     }
 
+    pub fn python_only(&self) -> bool {
+        self.python_only
+    }
+
     /// The stored value must be the same in both database copies. Returns the Python one.
     pub async fn db_same(&self, statement: &str) -> Option<String> {
         let (py, rs) = self.scalar(statement).await;
@@ -768,6 +772,9 @@ impl Pair {
             head_only,
         )
         .await;
+        if self.python_only {
+            return (py.clone(), py);
+        }
         let rs = send_raw(self.rs.port, req.bytes(Side::Rust, self.rs.port), head_only).await;
         (py, rs)
     }
@@ -792,6 +799,10 @@ impl Pair {
     /// The same request to both builds, which must answer the same. Returns both answers.
     pub async fn same(&self, req: &Req) -> (Observed, Observed) {
         let (py, rs) = self.exchange(req).await;
+        if self.python_only {
+            self.record(req, "python-only", &py, &py);
+            return (py.clone(), py);
+        }
         match compare_with(&py, &rs, self.py.port, self.rs.port, !self.binary) {
             Ok(Kind::Same) => self.record(req, "same", &py, &rs),
             Ok(Kind::DetailShape) => self.record(req, "detail_shape", &py, &rs),
