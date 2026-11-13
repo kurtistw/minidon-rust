@@ -43,9 +43,8 @@ static DATE_FIELD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#""(created_at|expires_at)":(?:"((?:[^"\\]|\\.)*)"|([^,}\]\s]*))"#)
         .expect("static pattern")
 });
-static TOKEN_FIELD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#""access_token":"((?:[^"\\]|\\.)*)""#).expect("static pattern")
-});
+static TOKEN_FIELD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""access_token":"((?:[^"\\]|\\.)*)""#).expect("static pattern"));
 static ID_FIELD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#""id":-?\d+"#).expect("static pattern"));
 

@@ -31,9 +31,19 @@ fn tokens_are_replaced_after_a_shape_check() {
         normalise(&body).unwrap(),
         r#"{"access_token":"<TOKEN>","token_type":"bearer","expires_at":"<TIMESTAMP+FRACTION>"}"#
     );
-    for bad in ["", "short", &"a".repeat(42), &"a".repeat(44), &format!("{}=", "a".repeat(42)), &format!("{}+", "a".repeat(42))] {
+    for bad in [
+        "",
+        "short",
+        &"a".repeat(42),
+        &"a".repeat(44),
+        &format!("{}=", "a".repeat(42)),
+        &format!("{}+", "a".repeat(42)),
+    ] {
         let body = format!(r#"{{"access_token":"{bad}"}}"#);
-        assert!(matches!(normalise(&body), Err(NormaliseError::BadToken(_))), "{bad}");
+        assert!(
+            matches!(normalise(&body), Err(NormaliseError::BadToken(_))),
+            "{bad}"
+        );
     }
 }
 
@@ -48,7 +58,12 @@ fn a_date_with_and_without_fraction_normalise_differently() {
 
 #[test]
 fn only_the_exact_python_wire_format_is_accepted() {
-    for good in ["2026-01-01T00:00:00", "2026-12-31T23:59:59.000001", "2026-01-01T00:00:00.500000", "1999-02-03T04:05:06.999999"] {
+    for good in [
+        "2026-01-01T00:00:00",
+        "2026-12-31T23:59:59.000001",
+        "2026-01-01T00:00:00.500000",
+        "1999-02-03T04:05:06.999999",
+    ] {
         assert!(check_wire_date(good).is_ok(), "{good}");
     }
     for bad in [
@@ -69,9 +84,15 @@ fn only_the_exact_python_wire_format_is_accepted() {
     ] {
         assert!(check_wire_date(bad).is_err(), "{bad:?}");
         let body = format!(r#"{{"created_at":"{bad}"}}"#);
-        assert!(matches!(normalise(&body), Err(NormaliseError::BadDate { .. })), "{bad:?}");
+        assert!(
+            matches!(normalise(&body), Err(NormaliseError::BadDate { .. })),
+            "{bad:?}"
+        );
         let body = format!(r#"{{"expires_at":"{bad}"}}"#);
-        assert!(matches!(normalise(&body), Err(NormaliseError::BadDate { .. })), "{bad:?}");
+        assert!(
+            matches!(normalise(&body), Err(NormaliseError::BadDate { .. })),
+            "{bad:?}"
+        );
     }
 }
 
