@@ -6,7 +6,7 @@
 
 use sqlx::SqlitePool;
 
-use super::model::{AccessToken, Account, AccountOut, Role};
+use super::model::{AccessToken, Account, AccountOut, Role, Tainted};
 use super::password::{hash_password, verify_password};
 use super::store::{self, NewAccount};
 use super::token::{expires_at, new_token};
@@ -17,6 +17,10 @@ use super::validate::{
 };
 use crate::platform::clock::Clock;
 use crate::platform::error::AppError;
+
+/// The 4xx text for a field with a lone surrogate that passed every rule (decisions 1 and 6).
+/// Python answers a 500 there, because SQLite and the hash cannot encode the text.
+pub const UNSTORABLE_MESSAGE: &str = "Text contains a character that cannot be stored";
 
 const BAD_CREDENTIALS: &str = "Invalid username or password";
 const SUSPENDED: &str = "This account is suspended";
@@ -42,6 +46,21 @@ pub async fn register(
     email: &str,
     password: &str,
 ) -> Result<Account, AppError> {
+    register_with(pool, clock, username, email, password, Tainted::default()).await
+}
+
+/// `register` for text that went through the lone-surrogate pre-parse. A tainted email is
+/// refused at the step where Python binds it (after the username check), a tainted password at
+/// the step where Python hashes it (after both uniqueness checks). A tainted username has
+/// already failed the pattern with Python's message.
+pub async fn register_with(
+    pool: &SqlitePool,
+    clock: &dyn Clock,
+    username: &str,
+    email: &str,
+    password: &str,
+    tainted: Tainted,
+) -> Result<Account, AppError> {
     let username = normalise_username(username);
     let email = normalise_email(email);
     if !username_valid(&username) {
@@ -56,8 +75,14 @@ pub async fn register(
     if store::find_by_username(pool, &username).await?.is_some() {
         return Err(AppError::Conflict("Username is taken".into()));
     }
+    if tainted.email {
+        return Err(AppError::Invalid(UNSTORABLE_MESSAGE.into()));
+    }
     if store::find_by_email(pool, &email).await?.is_some() {
         return Err(AppError::Conflict("Email is already registered".into()));
+    }
+    if tainted.password {
+        return Err(AppError::Invalid(UNSTORABLE_MESSAGE.into()));
     }
     // The first account on a fresh instance is the one running it.
     let role = if store::count_accounts(pool).await? == 0 {
@@ -90,9 +115,36 @@ pub async fn sign_in(
     username: &str,
     password: &str,
 ) -> Result<AccessToken, AppError> {
+    sign_in_with(
+        pool,
+        clock,
+        token_ttl_days,
+        username,
+        password,
+        Tainted::default(),
+    )
+    .await
+}
+
+/// `sign_in` for text that went through the lone-surrogate pre-parse. An unknown user is 401
+/// whatever the password holds (Python never reaches the hash). A known user with a tainted
+/// password gets the 4xx before the hash and before the suspension check. A tainted username
+/// holds U+FFFD, matches no account and is a 401: Python answers a 500 there, which no decision
+/// covers, so it is recorded as an unresolved difference.
+pub async fn sign_in_with(
+    pool: &SqlitePool,
+    clock: &dyn Clock,
+    token_ttl_days: i64,
+    username: &str,
+    password: &str,
+    tainted: Tainted,
+) -> Result<AccessToken, AppError> {
     let Some(account) = store::find_by_username(pool, username).await? else {
         return Err(AppError::Unauthorized(BAD_CREDENTIALS.into()));
     };
+    if tainted.password {
+        return Err(AppError::Invalid(UNSTORABLE_MESSAGE.into()));
+    }
     let secret = password.to_owned();
     let stored = account.password_hash.clone();
     // A malformed stored hash is an internal error (Python's 500), never a panic.
@@ -123,11 +175,36 @@ pub async fn update_profile(
     bio: Option<&str>,
     locked: Option<bool>,
 ) -> Result<Account, AppError> {
+    update_profile_with(
+        pool,
+        account,
+        display_name,
+        bio,
+        locked,
+        Tainted::default(),
+    )
+    .await
+}
+
+/// `update_profile` for text that went through the lone-surrogate pre-parse: the length rules
+/// run first, as in Python, and a tainted text that passes them is refused with a 4xx where
+/// Python's commit would crash.
+pub async fn update_profile_with(
+    pool: &SqlitePool,
+    account: &Account,
+    display_name: Option<&str>,
+    bio: Option<&str>,
+    locked: Option<bool>,
+    tainted: Tainted,
+) -> Result<Account, AppError> {
     if display_name.is_some_and(|value| !display_name_valid(value)) {
         return Err(AppError::Invalid(DISPLAY_NAME_MESSAGE.into()));
     }
     if bio.is_some_and(|value| !bio_valid(value)) {
         return Err(AppError::Invalid(BIO_MESSAGE.into()));
+    }
+    if (display_name.is_some() && tainted.display_name) || (bio.is_some() && tainted.bio) {
+        return Err(AppError::Invalid(UNSTORABLE_MESSAGE.into()));
     }
     let mut updated = account.clone();
     if let Some(value) = display_name {

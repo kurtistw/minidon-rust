@@ -4,7 +4,8 @@
 //! value is the lower-case `StrEnum` value. The enum-name helpers deferred from wave 1 live here
 //! with the only enum story 1 has.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 use crate::platform::clock::{format_wire, NaiveUtc};
 
@@ -147,6 +148,61 @@ pub struct ProfileIn {
     pub display_name: Option<String>,
     #[serde(default)]
     pub bio: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lax_bool")]
     pub locked: Option<bool>,
+}
+
+/// Pydantic's lax bool, as Python answers it (checked on the oracle): `true`/`false`, the
+/// integers 0 and 1, the floats 0.0 and 1.0, and the strings 0 off f false n no / 1 on t true y
+/// yes in any letter case. Everything else is an error (422). `null` means leave alone.
+fn lax_bool<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<bool>, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    let parsed = match &value {
+        Value::Null => return Ok(None),
+        Value::Bool(b) => Some(*b),
+        Value::Number(n) => match (n.as_i64(), n.as_u64(), n.as_f64()) {
+            (Some(0), _, _) | (_, Some(0), _) => Some(false),
+            (Some(1), _, _) | (_, Some(1), _) => Some(true),
+            (None, None, Some(f)) if f == 0.0 => Some(false),
+            (None, None, Some(f)) if f == 1.0 => Some(true),
+            _ => None,
+        },
+        Value::String(text) => match text.to_lowercase().as_str() {
+            "0" | "off" | "f" | "false" | "n" | "no" => Some(false),
+            "1" | "on" | "t" | "true" | "y" | "yes" => Some(true),
+            _ => None,
+        },
+        _ => None,
+    };
+    parsed
+        .map(Some)
+        .ok_or_else(|| serde::de::Error::custom("Input should be a valid boolean"))
+}
+
+/// The top level fields of a JSON body that held a lone surrogate (see `platform::scrub`).
+/// Python accepts such text and then fails with a 500 where SQLite or the hash meets it. The
+/// handler passes this to the service, which keeps Python's check order and answers a 4xx at the
+/// step where Python crashes (adr-001 section 5 decisions 1 and 6).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Tainted {
+    pub username: bool,
+    pub email: bool,
+    pub password: bool,
+    pub display_name: bool,
+    pub bio: bool,
+}
+
+impl Tainted {
+    /// Build from the field names the scrubber reported. Unknown fields are ignored: Python
+    /// ignores extra fields too.
+    pub fn from_fields(fields: &[String]) -> Self {
+        let has = |name: &str| fields.iter().any(|f| f == name);
+        Self {
+            username: has("username"),
+            email: has("email"),
+            password: has("password"),
+            display_name: has("display_name"),
+            bio: has("bio"),
+        }
+    }
 }
