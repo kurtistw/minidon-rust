@@ -766,3 +766,64 @@ async fn the_real_binary_and_python_share_one_database() {
         assert!(is_stored_datetime(row[0].as_deref().unwrap()), "{row:?}");
     }
 }
+
+// ---- both builds writing at the same moment ----
+
+#[tokio::test]
+async fn both_builds_can_write_to_the_one_file_at_the_same_time() {
+    let pair = SharedPair::new().await;
+    pair.register(Py, "seed_admin", "seedadmin@x.org", PASSWORD)
+        .await;
+    let mut jobs = Vec::new();
+    for i in 0..12 {
+        let side = if i % 2 == 0 { Py } else { Rs };
+        let pair = &pair;
+        jobs.push(async move {
+            let user = format!("race_{i}");
+            let register = pair
+                .send(
+                    side,
+                    &Req::register(&user, &format!("{user}@x.org"), PASSWORD),
+                )
+                .await;
+            let sign_in = pair.sign_in(other(side), &user, PASSWORD).await;
+            (user, register.status, sign_in.status)
+        });
+    }
+    for (user, register, sign_in) in futures_join(jobs).await {
+        assert_eq!((register, sign_in), (201, 200), "{user}");
+    }
+    let count = pair
+        .scalar("SELECT CAST(COUNT(*) AS TEXT) FROM accounts")
+        .await;
+    assert_eq!(count.as_deref(), Some("13"));
+    let admins = pair
+        .scalar("SELECT CAST(COUNT(*) AS TEXT) FROM accounts WHERE role = 'ADMIN'")
+        .await;
+    assert_eq!(admins.as_deref(), Some("1"));
+}
+
+/// Run the jobs concurrently (no extra crate: spawn each on the runtime's local set).
+async fn futures_join<T>(jobs: Vec<impl std::future::Future<Output = T>>) -> Vec<T> {
+    let mut pending: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = T> + '_>>> =
+        jobs.into_iter().map(|j| Box::pin(j) as _).collect();
+    let mut slots: Vec<Option<T>> = (0..pending.len()).map(|_| None).collect();
+    std::future::poll_fn(|cx| {
+        let mut done = true;
+        for (i, job) in pending.iter_mut().enumerate() {
+            if slots[i].is_none() {
+                match job.as_mut().poll(cx) {
+                    std::task::Poll::Ready(v) => slots[i] = Some(v),
+                    std::task::Poll::Pending => done = false,
+                }
+            }
+        }
+        if done {
+            std::task::Poll::Ready(())
+        } else {
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+    slots.into_iter().flatten().collect()
+}
