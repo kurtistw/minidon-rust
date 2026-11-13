@@ -21,6 +21,7 @@
 
 pub mod dataset;
 pub mod normalise;
+pub mod shared;
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
