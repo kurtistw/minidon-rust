@@ -4,12 +4,9 @@
 //! validation answers 422 `{"detail": [...]}`. Anything unexpected answers the fixed 500 body.
 //! Nothing here logs or echoes request bodies, `Authorization` headers, tokens or passwords.
 
-use axum::extract::rejection::JsonRejection;
-use axum::extract::{FromRequest, Request};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::de::DeserializeOwned;
 use serde_json::json;
 
 /// Mirrors the domain errors of `minidon/errors.py` that story 1 uses, plus Internal.
@@ -110,38 +107,15 @@ pub fn payload_too_large_response() -> Response {
         .into_response()
 }
 
-/// JSON body extractor whose rejections follow the Python contract: 422 `{"detail": [...]}`
-/// for a bad body, 413 above the limit.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ApiJson<T>(pub T);
-
-impl<S, T> FromRequest<S> for ApiJson<T>
-where
-    S: Send + Sync,
-    T: DeserializeOwned,
-{
-    type Rejection = Response;
-
-    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        match Json::<T>::from_request(req, state).await {
-            Ok(Json(value)) => Ok(Self(value)),
-            Err(rejection) => Err(map_json_rejection(&rejection)),
-        }
-    }
+/// 405 as Python, with the `Allow` header of the first route that matches the path (Starlette
+/// sends only that one route's methods).
+pub fn method_not_allowed_allowing(allow: &'static str) -> Response {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        [(header::ALLOW, allow)],
+        Json(json!({ "detail": "Method Not Allowed" })),
+    )
+        .into_response()
 }
 
-fn map_json_rejection(rejection: &JsonRejection) -> Response {
-    if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
-        return payload_too_large_response();
-    }
-    match rejection {
-        JsonRejection::JsonSyntaxError(_) => {
-            validation_response("json_invalid", "JSON decode error")
-        }
-        JsonRejection::MissingJsonContentType(_) => validation_response(
-            "model_attributes_type",
-            "Input should be a valid dictionary or object",
-        ),
-        _ => validation_response("value_error", "Invalid request body"),
-    }
-}
+pub use super::json::ApiJson;

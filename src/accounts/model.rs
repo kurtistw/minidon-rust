@@ -125,6 +125,24 @@ impl AccountOut {
     }
 }
 
+/// `POST /auth/token` response. Field order is Python's `TokenOut`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TokenOut {
+    pub access_token: String,
+    pub token_type: &'static str,
+    pub expires_at: String,
+}
+
+impl TokenOut {
+    pub fn new(access: &AccessToken) -> Self {
+        Self {
+            access_token: access.token.clone(),
+            token_type: "bearer",
+            expires_at: format_wire(access.expires_at),
+        }
+    }
+}
+
 /// `POST /accounts` body.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RegisterIn {
@@ -163,8 +181,8 @@ fn lax_bool<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<bool>, 
         Value::Number(n) => match (n.as_i64(), n.as_u64(), n.as_f64()) {
             (Some(0), _, _) | (_, Some(0), _) => Some(false),
             (Some(1), _, _) | (_, Some(1), _) => Some(true),
-            (None, None, Some(f)) if f == 0.0 => Some(false),
-            (None, None, Some(f)) if f == 1.0 => Some(true),
+            (None, None, Some(0.0)) => Some(false),
+            (None, None, Some(1.0)) => Some(true),
             _ => None,
         },
         Value::String(text) => match text.to_lowercase().as_str() {

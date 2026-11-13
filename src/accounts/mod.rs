@@ -8,6 +8,7 @@ pub mod extract;
 pub mod identity;
 pub mod model;
 pub mod password;
+pub mod routes;
 pub mod service;
 pub mod store;
 pub mod token;
