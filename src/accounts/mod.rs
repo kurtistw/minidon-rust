@@ -6,5 +6,6 @@
 
 pub mod model;
 pub mod password;
+pub mod store;
 pub mod token;
 pub mod validate;

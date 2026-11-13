@@ -37,3 +37,24 @@ pub async fn spawn(extra: Router<AppState>) -> String {
     });
     format!("http://{addr}")
 }
+
+const PYTHON_SCHEMA: &str = include_str!("../fixtures/python_schema.sql");
+
+/// Apply the Python-made schema fixture. Tests only: production code never runs DDL.
+pub async fn apply_python_schema(pool: &sqlx::SqlitePool) {
+    for statement in PYTHON_SCHEMA
+        .split(';')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        sqlx::query(statement).execute(pool).await.unwrap();
+    }
+}
+
+/// `test_state` with a copy of the Python-made schema applied (accounts, access_tokens,
+/// follows, statuses).
+pub async fn schema_state() -> AppState {
+    let state = test_state().await;
+    apply_python_schema(&state.pool).await;
+    state
+}
