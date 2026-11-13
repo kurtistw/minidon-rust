@@ -1,0 +1,52 @@
+[package]
+name = "minidon-rust"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+description = "Rust rebuild of minidon (Python reference e1fbd3a): same HTTP API, same data"
+publish = false
+
+[lib]
+name = "minidon_rust"
+path = "src/lib.rs"
+
+[[bin]]
+name = "minidon-rust"
+path = "src/main.rs"
+
+# Runtime crates: adr-001 D1 list plus section 5 decisions 5 and 7. Reasons in CRATES.md.
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+base64 = "0.22"
+hex = "0.4"
+hmac = "0.12"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+rand = "0.8"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite-bundled"] }
+subtle = "2"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+tower-http = { version = "0.6", default-features = false, features = ["catch-panic"] }
+
+# Dev-only crates (harness and tests), adr-001 decision 7.
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+tempfile = "3"
+
+# Threat rows 12 and 14: a panic must unwind into the catch-panic layer.
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
