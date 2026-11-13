@@ -1,7 +1,7 @@
 //! Wave 1 integration tests for `platform::db` (REQ-017, NFR-011, D2, review M-04, M-09).
 //!
 //! The schema comes from `tests/fixtures/python_schema.sql`, generated from the Python app at
-//! e1fbd3a (`create_tables()`, accounts and access_tokens only). Only the tests apply it. The
+//! e1fbd3a (`create_tables()`, accounts, access_tokens, follows and statuses only). Only the tests apply it. The
 //! production code never runs DDL.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -202,4 +202,26 @@ async fn stored_datetime_text_is_written_and_read_in_the_python_format() {
         parse_stored("2026-03-04 05:06:07.080910").unwrap(),
         datetime!(2026-03-04 05:06:07.080_910)
     );
+}
+
+#[tokio::test]
+async fn profile_count_tables_are_checked_too() {
+    // Profile counts read `follows` and `statuses` (review M-02), so startup checks them.
+    for (table, drop) in [
+        ("follows", "DROP TABLE follows"),
+        ("statuses", "DROP TABLE statuses"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = python_made_db(&dir).await;
+        let options = SqliteConnectOptions::new().filename(&path);
+        let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+        sqlx::query(drop).execute(&mut conn).await.unwrap();
+        conn.close().await.unwrap();
+
+        let err = connect_and_verify(&settings_for(&path))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains(table), "{err}");
+    }
 }

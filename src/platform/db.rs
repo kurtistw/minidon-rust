@@ -13,8 +13,9 @@ use sqlx::Row;
 
 use super::config::{parse_database_url, DatabaseLocation, Settings};
 
-/// Tables story 1 needs. Later stories add the tables they use.
-const REQUIRED_TABLES: [&str; 2] = ["accounts", "access_tokens"];
+/// Tables story 1 needs. Later stories add the tables they use. `follows` and `statuses` are
+/// only read, for the profile counts (review M-02).
+const REQUIRED_TABLES: [&str; 4] = ["accounts", "access_tokens", "follows", "statuses"];
 
 const MAX_CONNECTIONS: u32 = 5;
 
