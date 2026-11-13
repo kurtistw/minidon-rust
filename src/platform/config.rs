@@ -6,6 +6,9 @@ use std::path::PathBuf;
 /// Largest request body accepted (adr-001 section 5 decision 2). Python has no limit.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 
+/// Same dev address as Python (`python -m minidon` binds 127.0.0.1:8000, hard coded there).
+pub const DEFAULT_BIND: &str = "127.0.0.1:8000";
+
 const DEFAULT_DATABASE_URL: &str = "sqlite:///./minidon.db";
 const DEFAULT_DOMAIN: &str = "minidon.local";
 const DEFAULT_TOKEN_TTL_DAYS: i64 = 30;
@@ -96,4 +99,20 @@ pub fn parse_database_url(url: &str) -> Result<DatabaseLocation, ConfigError> {
         return Ok(DatabaseLocation::Memory);
     }
     Ok(DatabaseLocation::File(PathBuf::from(path)))
+}
+
+/// The address to listen on: `MINIDON_BIND`, default [`DEFAULT_BIND`]. Python has no such
+/// variable (its address is fixed), so this only adds a way to run two builds side by side, as
+/// the parity harness does. The value must be `ip:port`.
+pub fn bind_address_from<F>(lookup: F) -> Result<String, ConfigError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let value = lookup("MINIDON_BIND").unwrap_or_else(|| DEFAULT_BIND.to_owned());
+    match value.parse::<std::net::SocketAddr>() {
+        Ok(_) => Ok(value),
+        Err(_) => Err(ConfigError(format!(
+            "MINIDON_BIND {value:?} is not an address: use ip:port, for example 127.0.0.1:8000"
+        ))),
+    }
 }

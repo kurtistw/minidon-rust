@@ -101,3 +101,34 @@ fn unsupported_urls_are_rejected_with_a_clear_message() {
         );
     }
 }
+
+// ---- bind address (wave 5: the harness needs a free port per build, review m-13) ----
+
+use minidon_rust::platform::config::{bind_address_from, DEFAULT_BIND};
+
+#[test]
+fn bind_address_defaults_to_the_python_dev_address() {
+    assert_eq!(DEFAULT_BIND, "127.0.0.1:8000");
+    assert_eq!(bind_address_from(lookup(&[])).unwrap(), "127.0.0.1:8000");
+}
+
+#[test]
+fn minidon_bind_overrides_the_address() {
+    let bind = bind_address_from(lookup(&[("MINIDON_BIND", "127.0.0.1:18123")]));
+    assert_eq!(bind.unwrap(), "127.0.0.1:18123");
+}
+
+#[test]
+fn a_bind_value_that_is_not_an_address_is_an_error_naming_the_variable() {
+    for bad in [
+        "",
+        "localhost",
+        "8000",
+        "127.0.0.1",
+        "127.0.0.1:port",
+        "127.0.0.1:99999",
+    ] {
+        let error = bind_address_from(lookup(&[("MINIDON_BIND", bad)])).unwrap_err();
+        assert!(error.to_string().contains("MINIDON_BIND"), "{bad}: {error}");
+    }
+}
