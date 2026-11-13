@@ -4,6 +4,7 @@
 //! baseline gate). `store` and `service` are `pub` only so the integration tests under `tests/`
 //! can reach them: they are not an API for other capabilities.
 
+pub mod identity;
 pub mod model;
 pub mod password;
 pub mod store;
