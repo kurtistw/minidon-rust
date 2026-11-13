@@ -29,20 +29,40 @@ fn numbers_zero_and_one_only() {
     assert_eq!(locked(json!(0)), Ok(Some(false)));
     assert_eq!(locked(json!(1.0)), Ok(Some(true)));
     assert_eq!(locked(json!(0.0)), Ok(Some(false)));
-    for bad in [json!(2), json!(-1), json!(0.5), json!(1.5), json!(1e30), json!(u64::MAX)] {
+    for bad in [
+        json!(2),
+        json!(-1),
+        json!(0.5),
+        json!(1.5),
+        json!(1e30),
+        json!(u64::MAX),
+    ] {
         assert!(locked(bad.clone()).is_err(), "{bad}");
     }
 }
 
 #[test]
 fn strings_follow_the_pydantic_table_in_any_case() {
-    for yes in ["1", "on", "t", "true", "y", "yes", "TRUE", "True", "YES", "On", "T", "Y"] {
+    for yes in [
+        "1", "on", "t", "true", "y", "yes", "TRUE", "True", "YES", "On", "T", "Y",
+    ] {
         assert_eq!(locked(json!(yes)), Ok(Some(true)), "{yes}");
     }
-    for no in ["0", "off", "f", "false", "n", "no", "FALSE", "False", "NO", "Off"] {
+    for no in [
+        "0", "off", "f", "false", "n", "no", "FALSE", "False", "NO", "Off",
+    ] {
         assert_eq!(locked(json!(no)), Ok(Some(false)), "{no}");
     }
-    for bad in ["", " true ", "true ", "2", "maybe", "tru", "truee", "\u{ff34}rue"] {
+    for bad in [
+        "",
+        " true ",
+        "true ",
+        "2",
+        "maybe",
+        "tru",
+        "truee",
+        "\u{ff34}rue",
+    ] {
         assert!(locked(json!(bad)).is_err(), "{bad:?}");
     }
 }
@@ -62,7 +82,10 @@ fn text_fields_stay_strict() {
         json!({"bio": ["a"]}),
         json!({"display_name": 1.5}),
     ] {
-        assert!(serde_json::from_value::<ProfileIn>(body.clone()).is_err(), "{body}");
+        assert!(
+            serde_json::from_value::<ProfileIn>(body.clone()).is_err(),
+            "{body}"
+        );
     }
     let ok: ProfileIn = serde_json::from_value(json!({"display_name": null, "bio": "b"})).unwrap();
     assert_eq!(ok.display_name, None);

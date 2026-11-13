@@ -58,3 +58,47 @@ pub async fn schema_state() -> AppState {
     apply_python_schema(&state.pool).await;
     state
 }
+
+/// A full app (the real router) on a free port, with the Python schema, a fixed clock at T0 and
+/// handles to the pool and the clock.
+pub struct App {
+    pub base: String,
+    pub pool: sqlx::SqlitePool,
+    pub clock: Arc<FixedClock>,
+}
+
+pub async fn spawn_app() -> App {
+    let settings = Settings {
+        database_url: "sqlite://".into(),
+        instance_domain: "minidon.local".into(),
+        token_ttl_days: 30,
+    };
+    let pool = connect(&settings).await.unwrap();
+    apply_python_schema(&pool).await;
+    let clock = Arc::new(FixedClock::new(datetime!(2026-01-01 00:00:00)));
+    let state = AppState {
+        pool: pool.clone(),
+        clock: clock.clone(),
+        settings: Arc::new(settings),
+    };
+    let app = minidon_rust::platform::app::build_app(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr: SocketAddr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    App {
+        base: format!("http://{addr}"),
+        pool,
+        clock,
+    }
+}
+
+/// A client that never follows redirects and ignores proxy settings.
+pub fn client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .build()
+        .unwrap()
+}

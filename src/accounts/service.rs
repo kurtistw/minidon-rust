@@ -175,15 +175,7 @@ pub async fn update_profile(
     bio: Option<&str>,
     locked: Option<bool>,
 ) -> Result<Account, AppError> {
-    update_profile_with(
-        pool,
-        account,
-        display_name,
-        bio,
-        locked,
-        Tainted::default(),
-    )
-    .await
+    update_profile_with(pool, account, display_name, bio, locked, Tainted::default()).await
 }
 
 /// `update_profile` for text that went through the lone-surrogate pre-parse: the length rules

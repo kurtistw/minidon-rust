@@ -186,16 +186,14 @@ async fn sign_in_known_user_with_a_lone_surrogate_password_is_refused_before_has
     let e = env().await;
     e.plain("alice").await;
     let pw = format!("pass{FFFD}word");
-    let result =
-        service::sign_in_with(&e.pool, &e.clock, 30, "alice", &pw, only("password")).await;
+    let result = service::sign_in_with(&e.pool, &e.clock, 30, "alice", &pw, only("password")).await;
     assert_eq!(result.unwrap_err(), invalid(UNSTORABLE_MESSAGE));
 
     sqlx::query("UPDATE accounts SET suspended_at = '2026-01-01 00:00:00.000000'")
         .execute(&e.pool)
         .await
         .unwrap();
-    let result =
-        service::sign_in_with(&e.pool, &e.clock, 30, "alice", &pw, only("password")).await;
+    let result = service::sign_in_with(&e.pool, &e.clock, 30, "alice", &pw, only("password")).await;
     assert_eq!(result.unwrap_err(), invalid(UNSTORABLE_MESSAGE));
     let tokens: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM access_tokens")
         .fetch_one(&e.pool)
