@@ -75,7 +75,10 @@ fn unsupported(url: &str, why: &str) -> ConfigError {
 /// would read the path differently.
 pub fn parse_database_url(url: &str) -> Result<DatabaseLocation, ConfigError> {
     let Some(rest) = url.strip_prefix("sqlite://") else {
-        return Err(unsupported(url, "only the plain `sqlite` scheme is handled"));
+        return Err(unsupported(
+            url,
+            "only the plain `sqlite` scheme is handled",
+        ));
     };
     if rest.is_empty() {
         return Ok(DatabaseLocation::Memory);
