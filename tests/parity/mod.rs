@@ -181,10 +181,16 @@ impl Drop for PythonServer {
     }
 }
 
+enum Backend {
+    InProcess(tokio::task::JoinHandle<()>),
+    Binary(Child),
+}
+
 pub struct RustServer {
     pub port: u16,
+    /// The clock of the in-process build. The real binary has none (it uses the system clock).
     pub clock: Arc<FixedClock>,
-    task: tokio::task::JoinHandle<()>,
+    backend: Backend,
 }
 
 impl RustServer {
@@ -212,14 +218,49 @@ impl RustServer {
         Self {
             port: addr.port(),
             clock,
-            task,
+            backend: Backend::InProcess(task),
+        }
+    }
+
+    /// The real `minidon-rust` binary on a free port (`MINIDON_BIND`), on the system clock.
+    fn start_binary(db: &Path) -> Self {
+        let _lock = START
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let port = free_port();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_minidon-rust"))
+            .env("MINIDON_DATABASE_URL", sqlite_url(db))
+            .env("MINIDON_BIND", format!("127.0.0.1:{port}"))
+            .env_remove("MINIDON_DOMAIN")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn the rust binary");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while TcpStream::connect(("127.0.0.1", port)).is_err() {
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("rust binary exited early ({status})");
+            }
+            assert!(Instant::now() < deadline, "rust binary did not start");
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        Self {
+            port,
+            clock: Arc::new(FixedClock::new(T0)),
+            backend: Backend::Binary(child),
         }
     }
 }
 
 impl Drop for RustServer {
     fn drop(&mut self) {
-        self.task.abort();
+        match &mut self.backend {
+            Backend::InProcess(task) => task.abort(),
+            Backend::Binary(child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
     }
 }
 
@@ -318,6 +359,23 @@ impl Req {
         self.auth.push(AuthSpec::Literal(value.to_vec()));
         self
     }
+    pub fn register(username: &str, email: &str, password: &str) -> Self {
+        let body = serde_json::json!({"username": username, "email": email, "password": password});
+        Self::post_json("/api/v1/accounts", &body.to_string())
+    }
+    pub fn sign_in(username: &str, password: &str) -> Self {
+        let body = serde_json::json!({"username": username, "password": password});
+        Self::post_json("/api/v1/auth/token", &body.to_string())
+    }
+    pub fn me(tokens: &Tokens) -> Self {
+        Self::get("/api/v1/accounts/me").bearer(tokens)
+    }
+    pub fn patch_me(tokens: &Tokens, body: &str) -> Self {
+        Self::patch_json("/api/v1/accounts/me", body).bearer(tokens)
+    }
+    pub fn lookup(username: &str) -> Self {
+        Self::get(&format!("/api/v1/accounts/{username}"))
+    }
     pub fn label(mut self, label: &str) -> Self {
         self.label = label.to_owned();
         self
@@ -396,6 +454,9 @@ impl Observed {
     }
     pub fn json(&self) -> serde_json::Value {
         serde_json::from_slice(&self.raw_body).unwrap_or(serde_json::Value::Null)
+    }
+    pub fn describe_for_test(&self) -> String {
+        self.describe()
     }
     fn describe(&self) -> String {
         let selected: Vec<String> = self
@@ -522,6 +583,17 @@ fn allow_set(value: Option<&str>) -> Option<Vec<String>> {
 
 /// Compare the two answers. `Err` explains the first difference found.
 pub fn compare(py: &Observed, rs: &Observed, py_port: u16, rs_port: u16) -> Result<Kind, String> {
+    compare_with(py, rs, py_port, rs_port, true)
+}
+
+/// `strict_dates`: also require equal date values (true whenever both clocks are fixed).
+pub fn compare_with(
+    py: &Observed,
+    rs: &Observed,
+    py_port: u16,
+    rs_port: u16,
+    strict_dates: bool,
+) -> Result<Kind, String> {
     if py.status != rs.status {
         return Err(format!("status {} != {}", py.status, rs.status));
     }
@@ -545,6 +617,16 @@ pub fn compare(py: &Observed, rs: &Observed, py_port: u16, rs_port: u16) -> Resu
         normalise::normalise(&pb).map_err(|e| format!("python body: {e}"))?,
         normalise::normalise(&rb).map_err(|e| format!("rust body: {e}"))?,
     );
+    // With different clocks (the real binary) only the format of a date is compared, and the
+    // format check already ran in `normalise`. Whether a fraction shows depends on the clock.
+    let (np, nr) = if strict_dates {
+        (np, nr)
+    } else {
+        (
+            np.replace("<TIMESTAMP+FRACTION>", "<TIMESTAMP>"),
+            nr.replace("<TIMESTAMP+FRACTION>", "<TIMESTAMP>"),
+        )
+    };
     if np != nr {
         return Err(format!("body\n  python: {np}\n  rust:   {nr}"));
     }
@@ -553,7 +635,7 @@ pub fn compare(py: &Observed, rs: &Observed, py_port: u16, rs_port: u16) -> Resu
         normalise::wire_dates(&pb).map_err(|e| e.to_string())?,
         normalise::wire_dates(&rb).map_err(|e| e.to_string())?,
     );
-    if dp != dr {
+    if strict_dates && dp != dr {
         return Err(format!("date values differ: {dp:?} != {dr:?}"));
     }
     Ok(Kind::Same)
@@ -567,12 +649,24 @@ pub struct Pair {
     py_db: PathBuf,
     rs_db: PathBuf,
     test: String,
+    binary: bool,
+    python_only: bool,
     _dir: tempfile::TempDir,
 }
 
 impl Pair {
     /// Two servers on two copies of the Python-made empty database, both at T0.
     pub async fn new() -> Self {
+        Self::build(false).await
+    }
+
+    /// Like `new`, but Rust is the real binary on the system clock. Dates are then only checked
+    /// for format (the normaliser), not for value.
+    pub async fn new_with_binary() -> Self {
+        Self::build(true).await
+    }
+
+    async fn build(binary: bool) -> Self {
         let oracle = oracle();
         let dir = tempfile::tempdir_in(tmp_dir()).expect("temp dir");
         let py_db = dir.path().join("python.db");
@@ -580,7 +674,11 @@ impl Pair {
         std::fs::copy(&oracle.template_db, &py_db).expect("copy db");
         std::fs::copy(&oracle.template_db, &rs_db).expect("copy db");
         let py = PythonServer::start(&py_db, &dir.path().join("python.log"));
-        let rs = RustServer::start(&rs_db).await;
+        let rs = if binary {
+            RustServer::start_binary(&rs_db)
+        } else {
+            RustServer::start(&rs_db).await
+        };
         let test = std::thread::current()
             .name()
             .unwrap_or("unnamed")
@@ -591,6 +689,10 @@ impl Pair {
             py_db,
             rs_db,
             test,
+            binary,
+            // PARITY_PYTHON_ONLY=1: the test-first check. Every expectation asserted on the
+            // Python answer must hold on the oracle alone, before Rust is compared.
+            python_only: std::env::var_os("PARITY_PYTHON_ONLY").is_some(),
             _dir: dir,
         };
         pair.set_clock(T0).await;
@@ -599,7 +701,9 @@ impl Pair {
 
     /// Move both clocks. Python is frozen through the wrapper's control route.
     pub async fn set_clock(&self, at: NaiveUtc) {
-        self.rs.clock.set(at);
+        if !self.binary {
+            self.rs.clock.set(at);
+        }
         let body = format!(r#"{{"at":"{}"}}"#, format_wire(at));
         let request = Req::post_json("/__clock", &body).bytes(Side::Python, self.py.port);
         let answer = send_raw(self.py.port, request, false).await;
@@ -609,7 +713,9 @@ impl Pair {
     /// Run the same SQL on both database copies (seeding only, never DDL).
     pub async fn sql(&self, statement: &str) {
         for path in [&self.py_db, &self.rs_db] {
-            let options = SqliteConnectOptions::new().filename(path);
+            let options = SqliteConnectOptions::new()
+                .filename(path)
+                .foreign_keys(false);
             let mut conn = SqliteConnection::connect_with(&options)
                 .await
                 .expect("open db copy");
@@ -625,7 +731,9 @@ impl Pair {
     pub async fn scalar(&self, statement: &str) -> (Option<String>, Option<String>) {
         let mut out = Vec::new();
         for path in [&self.py_db, &self.rs_db] {
-            let options = SqliteConnectOptions::new().filename(path);
+            let options = SqliteConnectOptions::new()
+                .filename(path)
+                .foreign_keys(false);
             let mut conn = SqliteConnection::connect_with(&options)
                 .await
                 .expect("open db copy");
@@ -640,6 +748,15 @@ impl Pair {
         let rs = out.pop().flatten();
         let py = out.pop().flatten();
         (py, rs)
+    }
+
+    /// The stored value must be the same in both database copies. Returns the Python one.
+    pub async fn db_same(&self, statement: &str) -> Option<String> {
+        let (py, rs) = self.scalar(statement).await;
+        if !self.python_only {
+            assert_eq!(py, rs, "stored values differ for {statement}");
+        }
+        py
     }
 
     /// Send to both builds without comparing.
@@ -675,7 +792,7 @@ impl Pair {
     /// The same request to both builds, which must answer the same. Returns both answers.
     pub async fn same(&self, req: &Req) -> (Observed, Observed) {
         let (py, rs) = self.exchange(req).await;
-        match compare(&py, &rs, self.py.port, self.rs.port) {
+        match compare_with(&py, &rs, self.py.port, self.rs.port, !self.binary) {
             Ok(Kind::Same) => self.record(req, "same", &py, &rs),
             Ok(Kind::DetailShape) => self.record(req, "detail_shape", &py, &rs),
             Err(why) => {
@@ -707,6 +824,14 @@ impl Pair {
         self.pin(req, &py, &rs, py_status, rs_status, dev.id());
     }
 
+    /// Behaviour the stated contract leaves out on purpose (OP-06: the documentation routes are
+    /// not ported). Pinned like a deviation, never silently skipped.
+    pub async fn out_of_contract(&self, req: &Req, id: &str, py_status: u16, rs_status: u16) {
+        let (py, rs) = self.exchange(req).await;
+        self.record(req, &format!("out-of-contract:{id}"), &py, &rs);
+        self.pin(req, &py, &rs, py_status, rs_status, id);
+    }
+
     /// Python behaviour no decision covers. Pinned so it cannot change unseen, and reported as
     /// unresolved. This is NOT a whitelist entry: a human decides what Rust should do.
     pub async fn unresolved(&self, req: &Req, id: &str, py_status: u16, rs_status: u16) {
@@ -716,6 +841,10 @@ impl Pair {
     }
 
     fn pin(&self, req: &Req, py: &Observed, rs: &Observed, py_s: u16, rs_s: u16, id: &str) {
+        if self.python_only {
+            assert_eq!(py.status, py_s, "{id} {}: {}", req.label, py.describe());
+            return;
+        }
         assert_eq!(
             (py.status, rs.status),
             (py_s, rs_s),
