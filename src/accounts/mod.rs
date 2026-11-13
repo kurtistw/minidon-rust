@@ -5,3 +5,4 @@
 //! can reach them: they are not an API for other capabilities.
 
 pub mod model;
+pub mod validate;
