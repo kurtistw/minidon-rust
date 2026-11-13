@@ -45,7 +45,11 @@ fn derive(password: &str, salt: &[u8]) -> [u8; DIGEST_BYTES] {
 
 /// Hash with a given salt. For known-answer tests. Production code calls [`hash_password`].
 pub fn hash_password_with_salt(password: &str, salt: &[u8; SALT_BYTES]) -> String {
-    format!("{}${}", hex::encode(salt), hex::encode(derive(password, salt)))
+    format!(
+        "{}${}",
+        hex::encode(salt),
+        hex::encode(derive(password, salt))
+    )
 }
 
 /// Hash with a fresh OS-random 16-byte salt.

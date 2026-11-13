@@ -7,6 +7,7 @@
 pub mod identity;
 pub mod model;
 pub mod password;
+pub mod service;
 pub mod store;
 pub mod token;
 pub mod validate;

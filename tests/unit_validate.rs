@@ -26,7 +26,15 @@ fn ut_acc_001_valid_usernames() {
 fn ut_acc_002_invalid_usernames() {
     let long = "a".repeat(31);
     for name in [
-        "", &long, "bad-name", "has space", " alice", "alice ", "al.ice", "１２３", "alice\t",
+        "",
+        &long,
+        "bad-name",
+        "has space",
+        " alice",
+        "alice ",
+        "al.ice",
+        "１２３",
+        "alice\t",
     ] {
         assert!(!ok(name), "{name:?}");
     }
@@ -49,7 +57,14 @@ fn ut_acc_004_trailing_newline_set() {
     assert!(ok("alice\n"));
     assert!(ok(&format!("{}\n", "a".repeat(30))));
     assert!(!ok(&format!("{}\n", "a".repeat(31))));
-    for name in ["alice\n\n", "\n", "ali\nce", "alice\r\n", "\nalice", "alice\n "] {
+    for name in [
+        "alice\n\n",
+        "\n",
+        "ali\nce",
+        "alice\r\n",
+        "\nalice",
+        "alice\n ",
+    ] {
         assert!(!ok(name), "{name:?}");
     }
 }

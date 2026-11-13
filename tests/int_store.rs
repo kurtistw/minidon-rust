@@ -102,9 +102,11 @@ async fn duplicate_username_or_email_is_an_internal_error_like_the_python_race()
     store::insert_account(&pool, &new_account("dup", "d@x.org", Role::User))
         .await
         .unwrap();
-    let same_name = store::insert_account(&pool, &new_account("dup", "other@x.org", Role::User)).await;
+    let same_name =
+        store::insert_account(&pool, &new_account("dup", "other@x.org", Role::User)).await;
     assert_eq!(same_name.unwrap_err(), AppError::Internal);
-    let same_mail = store::insert_account(&pool, &new_account("other", "d@x.org", Role::User)).await;
+    let same_mail =
+        store::insert_account(&pool, &new_account("other", "d@x.org", Role::User)).await;
     assert_eq!(same_mail.unwrap_err(), AppError::Internal);
 }
 
@@ -118,7 +120,9 @@ async fn find_by_username_lower_cases_its_input() {
         let found = store::find_by_username(&pool, name).await.unwrap();
         assert_eq!(found.unwrap().username, "alice", "{name}");
     }
-    let found = store::find_by_username(&pool, "\u{212A}ELVIN").await.unwrap();
+    let found = store::find_by_username(&pool, "\u{212A}ELVIN")
+        .await
+        .unwrap();
     assert_eq!(found.unwrap().username, "kelvin", "Kelvin sign folds to k");
 }
 
@@ -127,13 +131,25 @@ async fn find_by_username_compares_the_stored_form_exactly_after_lower_casing() 
     let pool = pool().await;
     seed(&pool, "alice", "USER", false).await;
     seed(&pool, "alice\n", "USER", false).await;
-    let plain = store::find_by_username(&pool, "alice").await.unwrap().unwrap();
-    let newline = store::find_by_username(&pool, "ALICE\n").await.unwrap().unwrap();
+    let plain = store::find_by_username(&pool, "alice")
+        .await
+        .unwrap()
+        .unwrap();
+    let newline = store::find_by_username(&pool, "ALICE\n")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(plain.username, "alice");
     assert_eq!(newline.username, "alice\n");
     assert_ne!(plain.id, newline.id);
-    assert!(store::find_by_username(&pool, "alice\n\n").await.unwrap().is_none());
-    assert!(store::find_by_username(&pool, " alice").await.unwrap().is_none());
+    assert!(store::find_by_username(&pool, "alice\n\n")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store::find_by_username(&pool, " alice")
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
@@ -141,16 +157,35 @@ async fn find_by_username_never_reads_a_stored_upper_case_name() {
     // Python lower-cases the input only. A row stored as `Mixed` is not reachable.
     let pool = pool().await;
     seed(&pool, "Mixed", "USER", false).await;
-    assert!(store::find_by_username(&pool, "mixed").await.unwrap().is_none());
-    assert!(store::find_by_username(&pool, "Mixed").await.unwrap().is_none());
+    assert!(store::find_by_username(&pool, "mixed")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store::find_by_username(&pool, "Mixed")
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
 async fn quotes_percent_and_sql_text_in_usernames_stay_inert() {
     let pool = pool().await;
     seed(&pool, "alice", "USER", false).await;
-    for name in ["' OR '1'='1", "%", "al%", "_lice", "a'; DROP TABLE accounts; --", "alice' --"] {
-        assert!(store::find_by_username(&pool, name).await.unwrap().is_none(), "{name}");
+    for name in [
+        "' OR '1'='1",
+        "%",
+        "al%",
+        "_lice",
+        "a'; DROP TABLE accounts; --",
+        "alice' --",
+    ] {
+        assert!(
+            store::find_by_username(&pool, name)
+                .await
+                .unwrap()
+                .is_none(),
+            "{name}"
+        );
     }
     assert_eq!(store::count_accounts(&pool).await.unwrap(), 1);
     // The odd name round-trips through insert and find.
@@ -159,7 +194,11 @@ async fn quotes_percent_and_sql_text_in_usernames_stay_inert() {
         .await
         .unwrap();
     assert_eq!(
-        store::find_by_username(&pool, odd).await.unwrap().unwrap().username,
+        store::find_by_username(&pool, odd)
+            .await
+            .unwrap()
+            .unwrap()
+            .username,
         odd
     );
 }
@@ -168,7 +207,10 @@ async fn quotes_percent_and_sql_text_in_usernames_stay_inert() {
 async fn find_by_username_returns_suspended_rows_the_caller_filters() {
     let pool = pool().await;
     seed(&pool, "lou", "USER", true).await;
-    let found = store::find_by_username(&pool, "lou").await.unwrap().unwrap();
+    let found = store::find_by_username(&pool, "lou")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(found.suspended_at, Some(datetime!(2026-01-01 00:00:00)));
 }
 
@@ -176,10 +218,19 @@ async fn find_by_username_returns_suspended_rows_the_caller_filters() {
 async fn find_by_email_is_an_exact_match() {
     let pool = pool().await;
     seed(&pool, "erin", "USER", false).await;
-    assert!(store::find_by_email(&pool, "erin@x.org").await.unwrap().is_some());
+    assert!(store::find_by_email(&pool, "erin@x.org")
+        .await
+        .unwrap()
+        .is_some());
     // The service normalises first. The store does not.
-    assert!(store::find_by_email(&pool, "ERIN@x.org").await.unwrap().is_none());
-    assert!(store::find_by_email(&pool, "nobody@x.org").await.unwrap().is_none());
+    assert!(store::find_by_email(&pool, "ERIN@x.org")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store::find_by_email(&pool, "nobody@x.org")
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
@@ -200,7 +251,13 @@ async fn all_three_stored_roles_read_back() {
     let roles: Vec<Role> = {
         let mut out = Vec::new();
         for name in ["u", "m", "a"] {
-            out.push(store::find_by_username(&pool, name).await.unwrap().unwrap().role);
+            out.push(
+                store::find_by_username(&pool, name)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .role,
+            );
         }
         out
     };
@@ -230,19 +287,25 @@ async fn update_profile_changes_only_the_given_fields() {
     store::update_profile(&pool, id, Some("Mia"), Some("bio"), Some(false))
         .await
         .unwrap();
-    store::update_profile(&pool, id, None, Some("new bio"), None).await.unwrap();
+    store::update_profile(&pool, id, None, Some("new bio"), None)
+        .await
+        .unwrap();
     let account = store::find_by_id(&pool, id).await.unwrap().unwrap();
     assert_eq!(account.display_name, "Mia");
     assert_eq!(account.bio, "new bio");
     assert!(!account.locked);
 
-    store::update_profile(&pool, id, None, None, Some(true)).await.unwrap();
+    store::update_profile(&pool, id, None, None, Some(true))
+        .await
+        .unwrap();
     let account = store::find_by_id(&pool, id).await.unwrap().unwrap();
     assert!(account.locked);
     assert_eq!(account.bio, "new bio");
 
     // An empty string is a value, not "leave alone".
-    store::update_profile(&pool, id, Some(""), None, None).await.unwrap();
+    store::update_profile(&pool, id, Some(""), None, None)
+        .await
+        .unwrap();
     let account = store::find_by_id(&pool, id).await.unwrap().unwrap();
     assert_eq!(account.display_name, "");
     let locked: i64 = sqlx::query_scalar("SELECT locked FROM accounts WHERE id = ?")
@@ -258,7 +321,9 @@ async fn update_profile_touches_no_other_account() {
     let pool = pool().await;
     let a = seed(&pool, "a", "USER", false).await;
     let b = seed(&pool, "b", "USER", false).await;
-    store::update_profile(&pool, a, Some("A"), Some("x"), Some(true)).await.unwrap();
+    store::update_profile(&pool, a, Some("A"), Some("x"), Some(true))
+        .await
+        .unwrap();
     let other = store::find_by_id(&pool, b).await.unwrap().unwrap();
     assert_eq!(other.display_name, "");
     assert!(!other.locked);
@@ -277,23 +342,37 @@ fn token_row(token: &str, account_id: i64) -> AccessToken {
 async fn tokens_are_stored_in_clear_text_and_found_by_exact_text() {
     let pool = pool().await;
     let id = seed(&pool, "ivy", "USER", false).await;
-    store::insert_token(&pool, &token_row("tok-AbC_123", id)).await.unwrap();
+    store::insert_token(&pool, &token_row("tok-AbC_123", id))
+        .await
+        .unwrap();
     let stored: String = sqlx::query_scalar("SELECT token FROM access_tokens")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(stored, "tok-AbC_123");
-    let found = store::find_token(&pool, "tok-AbC_123").await.unwrap().unwrap();
+    let found = store::find_token(&pool, "tok-AbC_123")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(found, token_row("tok-AbC_123", id));
-    assert!(store::find_token(&pool, "tok-abc_123").await.unwrap().is_none());
+    assert!(store::find_token(&pool, "tok-abc_123")
+        .await
+        .unwrap()
+        .is_none());
     assert!(store::find_token(&pool, "").await.unwrap().is_none());
-    assert!(store::find_token(&pool, "' OR 1=1 --").await.unwrap().is_none());
+    assert!(store::find_token(&pool, "' OR 1=1 --")
+        .await
+        .unwrap()
+        .is_none());
     let row = sqlx::query("SELECT created_at, expires_at FROM access_tokens")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(row.get::<String, _>("created_at"), T0);
-    assert_eq!(row.get::<String, _>("expires_at"), "2026-01-31 00:00:00.000000");
+    assert_eq!(
+        row.get::<String, _>("expires_at"),
+        "2026-01-31 00:00:00.000000"
+    );
 }
 
 async fn follow(pool: &SqlitePool, follower: i64, followee: i64, accepted: bool) {
@@ -327,7 +406,10 @@ async fn status(pool: &SqlitePool, account: i64, deleted: bool, reblog_of: Optio
 async fn profile_counts_are_zero_on_an_empty_instance() {
     let pool = pool().await;
     let id = seed(&pool, "a", "USER", false).await;
-    assert_eq!(store::profile_counts(&pool, id).await.unwrap(), ProfileCounts::default());
+    assert_eq!(
+        store::profile_counts(&pool, id).await.unwrap(),
+        ProfileCounts::default()
+    );
 }
 
 #[tokio::test]
@@ -349,15 +431,27 @@ async fn profile_counts_read_follows_and_statuses_like_python() {
     status(&pool, b, false, None).await;
     assert_eq!(
         store::profile_counts(&pool, a).await.unwrap(),
-        ProfileCounts { followers: 2, following: 1, statuses: 2 }
+        ProfileCounts {
+            followers: 2,
+            following: 1,
+            statuses: 2
+        }
     );
     assert_eq!(
         store::profile_counts(&pool, b).await.unwrap(),
-        ProfileCounts { followers: 1, following: 1, statuses: 1 }
+        ProfileCounts {
+            followers: 1,
+            following: 1,
+            statuses: 1
+        }
     );
     assert_eq!(
         store::profile_counts(&pool, c).await.unwrap(),
-        ProfileCounts { followers: 0, following: 1, statuses: 0 }
+        ProfileCounts {
+            followers: 0,
+            following: 1,
+            statuses: 0
+        }
     );
 }
 
@@ -369,9 +463,15 @@ async fn store_leaves_the_schema_untouched() {
         .await
         .unwrap();
     let id = seed(&pool, "a", "USER", false).await;
-    store::insert_account(&pool, &new_account("z", "z@x.org", Role::User)).await.unwrap();
-    store::update_profile(&pool, id, Some("x"), None, None).await.unwrap();
-    store::insert_token(&pool, &token_row("t", id)).await.unwrap();
+    store::insert_account(&pool, &new_account("z", "z@x.org", Role::User))
+        .await
+        .unwrap();
+    store::update_profile(&pool, id, Some("x"), None, None)
+        .await
+        .unwrap();
+    store::insert_token(&pool, &token_row("t", id))
+        .await
+        .unwrap();
     store::profile_counts(&pool, id).await.unwrap();
     let after: Vec<String> = sqlx::query_scalar("SELECT sql FROM sqlite_master ORDER BY name")
         .fetch_all(&pool)

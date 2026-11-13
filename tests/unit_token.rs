@@ -29,7 +29,10 @@ fn expiry_is_issue_time_plus_ttl_days() {
     assert_eq!(expires_at(t0, 30), datetime!(2026-01-31 00:00:00));
     assert_eq!(expires_at(t0, 7), datetime!(2026-01-08 00:00:00));
     let with_micros = datetime!(2026-01-01 10:20:30.123456);
-    assert_eq!(expires_at(with_micros, 30), datetime!(2026-01-31 10:20:30.123456));
+    assert_eq!(
+        expires_at(with_micros, 30),
+        datetime!(2026-01-31 10:20:30.123456)
+    );
 }
 
 #[test]

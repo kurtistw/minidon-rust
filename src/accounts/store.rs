@@ -77,36 +77,33 @@ pub async fn find_by_username(
     username: &str,
 ) -> Result<Option<Account>, AppError> {
     let row = sqlx::query(select_account!("WHERE username = ?"))
-    .bind(normalise_username(username))
-    .fetch_optional(pool)
-    .await?;
+        .bind(normalise_username(username))
+        .fetch_optional(pool)
+        .await?;
     row.as_ref().map(read_account).transpose()
 }
 
 /// Find by email, exact match. The service normalises the email first.
 pub async fn find_by_email(pool: &SqlitePool, email: &str) -> Result<Option<Account>, AppError> {
     let row = sqlx::query(select_account!("WHERE email = ?"))
-    .bind(email)
-    .fetch_optional(pool)
-    .await?;
+        .bind(email)
+        .fetch_optional(pool)
+        .await?;
     row.as_ref().map(read_account).transpose()
 }
 
 pub async fn find_by_id(pool: &SqlitePool, id: i64) -> Result<Option<Account>, AppError> {
     let row = sqlx::query(select_account!("WHERE id = ?"))
-    .bind(id)
-    .fetch_optional(pool)
-    .await?;
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
     row.as_ref().map(read_account).transpose()
 }
 
 /// Insert one account with Python's column values: empty display name and bio, not locked,
 /// not suspended. A unique violation (the Python count-then-insert race, or a look-alike) is an
 /// internal error, as in Python.
-pub async fn insert_account(
-    pool: &SqlitePool,
-    new: &NewAccount<'_>,
-) -> Result<Account, AppError> {
+pub async fn insert_account(pool: &SqlitePool, new: &NewAccount<'_>) -> Result<Account, AppError> {
     let result = sqlx::query(
         "INSERT INTO accounts (username, email, password_hash, display_name, bio, locked, role, \
          suspended_at, created_at) VALUES (?, ?, ?, '', '', 0, ?, NULL, ?)",
@@ -190,18 +187,16 @@ pub async fn find_token(pool: &SqlitePool, token: &str) -> Result<Option<AccessT
 /// table. SEAM: story 2 (Following) and story 3 (Posting) take these queries over through their
 /// own modules, and this function then calls them.
 pub async fn profile_counts(pool: &SqlitePool, account_id: i64) -> Result<ProfileCounts, AppError> {
-    let followers = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM follows WHERE followee_id = ? AND accepted",
-    )
-    .bind(account_id)
-    .fetch_one(pool)
-    .await?;
-    let following = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM follows WHERE follower_id = ? AND accepted",
-    )
-    .bind(account_id)
-    .fetch_one(pool)
-    .await?;
+    let followers =
+        sqlx::query_scalar("SELECT COUNT(*) FROM follows WHERE followee_id = ? AND accepted")
+            .bind(account_id)
+            .fetch_one(pool)
+            .await?;
+    let following =
+        sqlx::query_scalar("SELECT COUNT(*) FROM follows WHERE follower_id = ? AND accepted")
+            .bind(account_id)
+            .fetch_one(pool)
+            .await?;
     let statuses = sqlx::query_scalar(
         "SELECT COUNT(*) FROM statuses WHERE account_id = ? AND deleted_at IS NULL \
          AND reblog_of_id IS NULL",

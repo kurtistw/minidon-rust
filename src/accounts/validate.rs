@@ -30,7 +30,8 @@ const MAX_BIO_LENGTH: usize = 500;
 // `tests/unit_validate.rs` (UT-ACC-004) and the parity test PT-ACC-004a..f must change with it.
 const USERNAME_PATTERN: &str = r"^[a-z0-9_]{1,30}\n?\z";
 
-static USERNAME_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(USERNAME_PATTERN).ok());
+static USERNAME_REGEX: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(USERNAME_PATTERN).ok());
 
 /// Python `str.strip()` whitespace: the Unicode White_Space set (what Rust's `char::is_whitespace`
 /// knows) plus U+001C to U+001F, which Python also counts as whitespace.
